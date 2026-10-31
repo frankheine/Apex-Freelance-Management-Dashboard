@@ -1,6 +1,7 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, FirebaseApp } from 'firebase/app';
 import {
   getAuth,
+  Auth,
   GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -9,6 +10,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  Firestore,
   doc,
   getDocFromServer,
   collection,
@@ -49,14 +51,20 @@ export interface FirestoreErrorInfo {
   };
 }
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
-
 const isPlaceholderProject =
   !firebaseConfig.apiKey ||
   firebaseConfig.apiKey.includes('ApexManagementInterfaceConfigKey') ||
   firebaseConfig.projectId === 'remixed-project-id';
+
+let app: FirebaseApp | null = null;
+export let db: Firestore | null = null;
+export let auth: Auth | null = null;
+
+if (!isPlaceholderProject) {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  auth = getAuth(app);
+}
 
 export function handleFirestoreError(
   error: unknown,
@@ -66,13 +74,13 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid ?? null,
-      email: auth.currentUser?.email ?? null,
-      emailVerified: auth.currentUser?.emailVerified ?? null,
-      isAnonymous: auth.currentUser?.isAnonymous ?? null,
-      tenantId: auth.currentUser?.tenantId ?? null,
+      userId: auth?.currentUser?.uid ?? null,
+      email: auth?.currentUser?.email ?? null,
+      emailVerified: auth?.currentUser?.emailVerified ?? null,
+      isAnonymous: auth?.currentUser?.isAnonymous ?? null,
+      tenantId: auth?.currentUser?.tenantId ?? null,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        auth?.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -85,7 +93,7 @@ export function handleFirestoreError(
 }
 
 async function testConnection() {
-  if (isPlaceholderProject) return;
+  if (isPlaceholderProject || !db) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -127,7 +135,7 @@ export function getInitialOperatorSession(): OperatorSession | null {
 }
 
 export async function signInOperator(): Promise<OperatorSession> {
-  if (!isPlaceholderProject) {
+  if (!isPlaceholderProject && auth) {
     try {
       const provider = new GoogleAuthProvider();
       const credential = await signInWithPopup(auth, provider);
@@ -151,13 +159,13 @@ export async function signInOperator(): Promise<OperatorSession> {
 
 export async function signOutOperator(): Promise<void> {
   localStorage.removeItem(SESSION_STORAGE_KEY);
-  if (!isPlaceholderProject) {
+  if (!isPlaceholderProject && auth) {
     await firebaseSignOut(auth);
   }
 }
 
 export function subscribeAuthChanges(callback: (session: OperatorSession | null) => void) {
-  if (!isPlaceholderProject) {
+  if (!isPlaceholderProject && auth) {
     return onAuthStateChanged(auth, (user) => {
       if (user) {
         callback({
@@ -200,7 +208,7 @@ export function subscribeCollection<T extends { id: string; ownerId: string }>(
 
   let unsubFirestore: (() => void) | null = null;
 
-  if (!isPlaceholderProject && auth.currentUser) {
+  if (!isPlaceholderProject && db && auth?.currentUser) {
     const q = query(collection(db, collectionName), where('ownerId', '==', ownerId));
     unsubFirestore = onSnapshot(
       q,
@@ -260,7 +268,7 @@ export async function createDocument<T extends { id: string; ownerId: string }>(
   const sanitizedId = docId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
   const nowIso = new Date().toISOString();
 
-  if (!isPlaceholderProject && auth.currentUser) {
+  if (!isPlaceholderProject && db && auth?.currentUser) {
     try {
       await setDoc(doc(db, collectionName, sanitizedId), {
         ...payload,
@@ -297,7 +305,7 @@ export async function updateDocument<T extends { id: string; ownerId: string }>(
   const sanitizedId = docId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
   const nowIso = new Date().toISOString();
 
-  if (!isPlaceholderProject && auth.currentUser) {
+  if (!isPlaceholderProject && db && auth?.currentUser) {
     try {
       await updateDoc(doc(db, collectionName, sanitizedId), {
         ...partialUpdate,
@@ -330,7 +338,7 @@ export async function deleteDocument(
 ): Promise<void> {
   const sanitizedId = docId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
 
-  if (!isPlaceholderProject && auth.currentUser) {
+  if (!isPlaceholderProject && db && auth?.currentUser) {
     try {
       await deleteDoc(doc(db, collectionName, sanitizedId));
     } catch (error) {

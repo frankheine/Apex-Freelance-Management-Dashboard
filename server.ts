@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
@@ -30,8 +31,8 @@ function getGenAIClient() {
   });
 }
 
-// Persistent JSON file store on disk backing Firestore collections and live webhook ingestion
-const DATA_FILE = path.resolve(process.cwd(), '.apex-datastore.json');
+// Persistent JSON file store in /tmp backing Firestore collections and live webhook ingestion
+const DATA_FILE = path.resolve('/tmp', 'apex-datastore.json');
 const DEFAULT_OWNER_ID = 'op_frankie_heine_apex01';
 
 interface DataStore {
@@ -1112,9 +1113,16 @@ app.post('/api/bci/trigger', async (req, res) => {
 // VITE DEV MIDDLEWARE / PRODUCTION STATIC ASSETS
 // ============================================================================
 async function startServer() {
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: {
+          server: httpServer,
+        },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1126,7 +1134,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Apex Management Interface server listening on http://0.0.0.0:${PORT}`);
   });
 }

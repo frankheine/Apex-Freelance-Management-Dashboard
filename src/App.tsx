@@ -183,16 +183,21 @@ export default function App() {
       {/* Strict 3-Zone Top Bar Contract */}
       <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 py-3.5 bg-[#090D16]/95 backdrop-blur border-b border-slate-800">
         {/* Zone 1: Single text element wordmark */}
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveModule('interceptor');
-          }}
-          className="text-lg font-bold tracking-tight text-slate-50 whitespace-nowrap shrink-0 font-display"
-        >
-          The Apex Management Interface
-        </a>
+        <div className="flex flex-col shrink-0">
+          <a
+            href="#top"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveModule('interceptor');
+            }}
+            className="text-lg font-bold tracking-tight text-slate-50 whitespace-nowrap shrink-0 font-display leading-tight"
+          >
+            Apex Freelance Management Dashboard
+          </a>
+          <span className="text-xs text-slate-400 whitespace-nowrap">
+            Designed by Frank Heine
+          </span>
+        </div>
 
         {/* Zone 2: 5 concise single-line text navigation links */}
         <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-400">
