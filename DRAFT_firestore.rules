@@ -1,0 +1,311 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(ownerId) {
+      return isVerifiedUser() && request.auth.uid == ownerId;
+    }
+
+    // 1. InterceptorJob Validation Blueprint
+    function isValidInterceptorJob(data) {
+      return data.keys().hasAll([
+        'ownerId', 'source', 'title', 'clientName', 'budget',
+        'jobDescription', 'webhookToken', 'roiProposal', 'status',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'source', 'title', 'clientName', 'budget',
+        'jobDescription', 'webhookToken', 'roiProposal', 'status',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.source is string && data.source.size() >= 1 && data.source.size() <= 64 &&
+      data.source in ['playwright-scraper', 'n8n-alert', 'test-dispatcher'] &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 240 &&
+      data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 160 &&
+      data.budget is string && data.budget.size() >= 1 && data.budget.size() <= 80 &&
+      data.jobDescription is string && data.jobDescription.size() >= 1 && data.jobDescription.size() <= 8000 &&
+      data.webhookToken is string && data.webhookToken.size() >= 1 && data.webhookToken.size() <= 128 && data.webhookToken.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.roiProposal is string && data.roiProposal.size() <= 12000 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 40 &&
+      data.status in ['intercepted', 'proposal_ready', 'dispatched'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /interceptorJobs/{jobId} {
+      allow get: if isSignedIn() && isValidId(jobId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(jobId) && isValidInterceptorJob(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(jobId) && isValidInterceptorJob(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['roiProposal', 'status', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(jobId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 2. ArbitrageRepo Validation Blueprint
+    function isValidArbitrageRepo(data) {
+      return data.keys().hasAll([
+        'ownerId', 'repoUrl', 'repoFullName', 'category',
+        'readmeContent', 'jsonFileName', 'jsonRawContent',
+        'starsCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'repoUrl', 'repoFullName', 'category',
+        'readmeContent', 'jsonFileName', 'jsonRawContent',
+        'starsCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.repoUrl is string && data.repoUrl.size() >= 3 && data.repoUrl.size() <= 300 &&
+      data.repoFullName is string && data.repoFullName.size() >= 3 && data.repoFullName.size() <= 160 &&
+      data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+      data.readmeContent is string && data.readmeContent.size() >= 1 && data.readmeContent.size() <= 100000 &&
+      data.jsonFileName is string && data.jsonFileName.size() >= 1 && data.jsonFileName.size() <= 200 &&
+      data.jsonRawContent is string && data.jsonRawContent.size() >= 2 && data.jsonRawContent.size() <= 100000 &&
+      data.starsCount is number && data.starsCount >= 0 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /arbitrageRepos/{repoId} {
+      allow get: if isSignedIn() && isValidId(repoId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(repoId) && isValidArbitrageRepo(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(repoId) && isValidArbitrageRepo(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['readmeContent', 'jsonFileName', 'jsonRawContent', 'starsCount', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(repoId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 3. ColdLead Validation Blueprint (Contains PII - strictly owner-isolated)
+    function isValidColdLead(data) {
+      return data.keys().hasAll([
+        'ownerId', 'email', 'firstName', 'lastName', 'company',
+        'jobTitle', 'hiringSignal', 'verificationStatus',
+        'assignedBurnerDomain', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'email', 'firstName', 'lastName', 'company',
+        'jobTitle', 'hiringSignal', 'verificationStatus',
+        'assignedBurnerDomain', 'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+      data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 100 &&
+      data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 100 &&
+      data.company is string && data.company.size() >= 1 && data.company.size() <= 160 &&
+      data.jobTitle is string && data.jobTitle.size() >= 1 && data.jobTitle.size() <= 160 &&
+      data.hiringSignal is string && data.hiringSignal.size() >= 1 && data.hiringSignal.size() <= 240 &&
+      data.verificationStatus is string && data.verificationStatus.size() >= 1 && data.verificationStatus.size() <= 40 &&
+      data.verificationStatus in ['Pending Airlock', 'Valid'] &&
+      data.assignedBurnerDomain is string && data.assignedBurnerDomain.size() >= 1 && data.assignedBurnerDomain.size() <= 80 &&
+      data.assignedBurnerDomain in ['ops-apexroute.io', 'cyber-relay.net', 'automate-veil.org'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /coldLeads/{leadId} {
+      allow get: if isOwner(existing().ownerId) && isValidId(leadId);
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(leadId) && isValidColdLead(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(leadId) && isValidColdLead(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['verificationStatus', 'assignedBurnerDomain', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(leadId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 4. LedgerEntry Validation Blueprint
+    function isValidLedgerEntry(data) {
+      return data.keys().hasAll([
+        'ownerId', 'entryType', 'itemTitle', 'vendor', 'amountCents',
+        'paymentMethod', 'reimbursementAccount', 'expenseDate',
+        'receiptFileName', 'receiptDataUrl', 'receiptSha256',
+        'payoutStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'entryType', 'itemTitle', 'vendor', 'amountCents',
+        'paymentMethod', 'reimbursementAccount', 'expenseDate',
+        'receiptFileName', 'receiptDataUrl', 'receiptSha256',
+        'payoutStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.entryType is string && data.entryType.size() >= 1 && data.entryType.size() <= 64 &&
+      data.entryType in ['Accountable Plan Reimbursement', 'Personal Capital Contribution'] &&
+      data.itemTitle is string && data.itemTitle.size() >= 1 && data.itemTitle.size() <= 200 &&
+      data.vendor is string && data.vendor.size() >= 1 && data.vendor.size() <= 120 &&
+      data.amountCents is number && data.amountCents > 0 && data.amountCents <= 100000000 &&
+      data.paymentMethod is string && data.paymentMethod.size() >= 1 && data.paymentMethod.size() <= 100 &&
+      data.reimbursementAccount is string && data.reimbursementAccount.size() >= 1 && data.reimbursementAccount.size() <= 100 &&
+      data.expenseDate is string && data.expenseDate.size() >= 4 && data.expenseDate.size() <= 32 &&
+      data.receiptFileName is string && data.receiptFileName.size() >= 1 && data.receiptFileName.size() <= 180 &&
+      data.receiptDataUrl is string && data.receiptDataUrl.size() >= 1 && data.receiptDataUrl.size() <= 750000 &&
+      data.receiptSha256 is string && data.receiptSha256.size() >= 8 && data.receiptSha256.size() <= 128 &&
+      data.payoutStatus is string && data.payoutStatus.size() >= 1 && data.payoutStatus.size() <= 64 &&
+      data.payoutStatus in ['Pending Verification', 'Approved for Relay Payout', 'Reimbursed via Relay Checking'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /ledgerEntries/{entryId} {
+      allow get: if isSignedIn() && isValidId(entryId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(entryId) && isValidLedgerEntry(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(entryId) && isValidLedgerEntry(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        existing().payoutStatus != 'Reimbursed via Relay Checking' &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['payoutStatus', 'receiptFileName', 'receiptDataUrl', 'receiptSha256', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(entryId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 5. VrPipelineItem Validation Blueprint
+    function isValidVrPipelineItem(data) {
+      return data.keys().hasAll([
+        'ownerId', 'clipTitle', 'cameraSource', 'nasPath', 'resolution',
+        'stage', 'kaggleNotebookId', 'rifeStatus', 'targetFps',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'clipTitle', 'cameraSource', 'nasPath', 'resolution',
+        'stage', 'kaggleNotebookId', 'rifeStatus', 'targetFps',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.clipTitle is string && data.clipTitle.size() >= 1 && data.clipTitle.size() <= 180 &&
+      data.cameraSource is string && data.cameraSource.size() >= 1 && data.cameraSource.size() <= 100 &&
+      data.nasPath is string && data.nasPath.size() >= 1 && data.nasPath.size() <= 260 &&
+      data.resolution is string && data.resolution.size() >= 1 && data.resolution.size() <= 64 &&
+      data.stage is string && data.stage.size() >= 1 && data.stage.size() <= 64 &&
+      data.stage in [
+        'Raw 30fps Capture',
+        'Topaz Cloud Interpolation',
+        'Spatial Metadata Injection',
+        '3D Gaussian Splatting'
+      ] &&
+      data.kaggleNotebookId is string && data.kaggleNotebookId.size() >= 1 && data.kaggleNotebookId.size() <= 160 &&
+      data.rifeStatus is string && data.rifeStatus.size() >= 1 && data.rifeStatus.size() <= 64 &&
+      data.rifeStatus in ['Idle', 'Queued', 'Running RIFE v4.15', 'Completed'] &&
+      data.targetFps is string && data.targetFps.size() >= 1 && data.targetFps.size() <= 24 &&
+      data.targetFps in ['60fps', '90fps', '120fps'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /vrPipelineItems/{itemId} {
+      allow get: if isSignedIn() && isValidId(itemId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(itemId) && isValidVrPipelineItem(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(itemId) && isValidVrPipelineItem(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['stage', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['rifeStatus', 'kaggleNotebookId', 'targetFps', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['stage', 'rifeStatus', 'updatedAt'])
+        );
+      allow delete: if isVerifiedUser() && isValidId(itemId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 6. BciCalibration Validation Blueprint
+    function isValidBciCalibration(data) {
+      return data.keys().hasAll([
+        'ownerId', 'profileName', 'hardwareTarget', 'emgTrigger',
+        'emgThresholdMicrovolts', 'ssvepGazeX', 'ssvepGazeY',
+        'ssvepFrequencyHz', 'webhookUrl', 'payloadTemplate',
+        'triggerCount', 'lastHttpStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId', 'profileName', 'hardwareTarget', 'emgTrigger',
+        'emgThresholdMicrovolts', 'ssvepGazeX', 'ssvepGazeY',
+        'ssvepFrequencyHz', 'webhookUrl', 'payloadTemplate',
+        'triggerCount', 'lastHttpStatus', 'createdAt', 'updatedAt'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.profileName is string && data.profileName.size() >= 1 && data.profileName.size() <= 140 &&
+      data.hardwareTarget is string && data.hardwareTarget.size() >= 1 && data.hardwareTarget.size() <= 80 &&
+      data.hardwareTarget in ['INMO Air 3 AR + Hybrid BCI', 'SSVEP Occipital Array', 'Micro-EMG Surface Leads'] &&
+      data.emgTrigger is string && data.emgTrigger.size() >= 1 && data.emgTrigger.size() <= 120 &&
+      data.emgThresholdMicrovolts is number && data.emgThresholdMicrovolts >= 1 && data.emgThresholdMicrovolts <= 5000 &&
+      data.ssvepGazeX is number && data.ssvepGazeX >= 0 && data.ssvepGazeX <= 3840 &&
+      data.ssvepGazeY is number && data.ssvepGazeY >= 0 && data.ssvepGazeY <= 2160 &&
+      data.ssvepFrequencyHz is number && data.ssvepFrequencyHz >= 1 && data.ssvepFrequencyHz <= 120 &&
+      data.webhookUrl is string && data.webhookUrl.size() >= 5 && data.webhookUrl.size() <= 400 &&
+      data.payloadTemplate is string && data.payloadTemplate.size() >= 2 && data.payloadTemplate.size() <= 4000 &&
+      data.triggerCount is number && data.triggerCount >= 0 &&
+      data.lastHttpStatus is number && data.lastHttpStatus >= 0 && data.lastHttpStatus <= 599 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /bciCalibrations/{calibrationId} {
+      allow get: if isSignedIn() && isValidId(calibrationId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(calibrationId) && isValidBciCalibration(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(calibrationId) && isValidBciCalibration(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['triggerCount', 'lastHttpStatus', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'profileName', 'hardwareTarget', 'emgTrigger', 'emgThresholdMicrovolts',
+            'ssvepGazeX', 'ssvepGazeY', 'ssvepFrequencyHz', 'webhookUrl',
+            'payloadTemplate', 'updatedAt'
+          ])
+        );
+      allow delete: if isVerifiedUser() && isValidId(calibrationId) && existing().ownerId == request.auth.uid;
+    }
+  }
+}

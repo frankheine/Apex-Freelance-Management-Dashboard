@@ -1,0 +1,6 @@
+{
+  "name": "The Apex Management Interface",
+  "description": "Centralized command center and modular routing hub for an elite freelance automation and cybernetic media enterprise.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
